@@ -1,19 +1,87 @@
 
-import React, { useState, useCallback } from 'react';
-import { Context, TranslationResult, JavaneseLevel } from './types';
-import { QUICK_SCENARIOS } from './constants';
-import { translateToJavanese } from './geminiService';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Context, TranslationResult, JavaneseLevel, SITUATIONS, Situation, DEFAULT_CONTEXTS } from './types';
+import { translateToJavanese, generateSituationalText } from './geminiService';
+
+const MicrophoneIcon = ({ isRecording }: { isRecording: boolean }) => (
+  <svg 
+    width="24" 
+    height="24" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg"
+    className={`transition-all duration-300 ${isRecording ? 'scale-110' : ''}`}
+  >
+    <path 
+      d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" 
+      fill="currentColor" 
+      className={isRecording ? 'animate-pulse' : ''}
+    />
+    <path 
+      d="M19 10v2a7 7 0 0 1-14 0v-2" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+    />
+    <line 
+      x1="12" y1="19" x2="12" y2="23" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+    />
+    <line 
+      x1="8" y1="23" x2="16" y2="23" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+    />
+  </svg>
+);
+
+const AddIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="12" y1="8" x2="12" y2="16"></line>
+    <line x1="8" y1="12" x2="16" y2="12"></line>
+  </svg>
+);
+
+const ArrowRightIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+    <polyline points="12 5 19 12 12 19"></polyline>
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    <line x1="10" y1="11" x2="10" y2="17"></line>
+    <line x1="14" y1="11" x2="14" y2="17"></line>
+  </svg>
+);
 
 const App: React.FC = () => {
   const [inputText, setInputText] = useState('');
-  const [selectedContext, setSelectedContext] = useState<Context>(Context.ELDER);
+  const [availableContexts, setAvailableContexts] = useState<Context[]>(DEFAULT_CONTEXTS);
+  const [selectedContext, setSelectedContext] = useState<Context>(DEFAULT_CONTEXTS[1]); 
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isGeneratingSituation, setIsGeneratingSituation] = useState(false);
   const [result, setResult] = useState<TranslationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isAddingContext, setIsAddingContext] = useState(false);
+  const [newContextName, setNewContextName] = useState('');
+
+  const recognitionRef = useRef<any>(null);
 
   const handleTranslate = useCallback(async () => {
-    if (!inputText.trim()) return;
-
+    if (!inputText.trim()) {
+      setError('Silakan masukkan teks terlebih dahulu.');
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -26,157 +94,194 @@ const App: React.FC = () => {
     }
   }, [inputText, selectedContext]);
 
-  const handleQuickScenario = (text: string) => {
-    setInputText(text);
+  const handleSituationClick = async (situation: Situation) => {
+    setIsGeneratingSituation(true);
     setError(null);
-  };
-
-  const closeResult = () => {
-    setResult(null);
-  };
-
-  const handleCopy = () => {
-    if (result) {
-      navigator.clipboard.writeText(result.translatedText);
-      alert('Teks berhasil disalin!');
+    try {
+      const text = await generateSituationalText(situation.prompt, selectedContext);
+      setInputText(text);
+    } catch (err) {
+      setError('Gagal membuat inspirasi kalimat.');
+    } finally {
+      setIsGeneratingSituation(false);
     }
   };
 
-  return (
-    <div className="relative min-h-screen flex flex-col items-center overflow-x-hidden pb-10">
-      {/* Decorative Gradients */}
-      <div className="fixed top-[-10%] right-[-5%] w-[40%] h-[40%] bg-secondary/5 rounded-full blur-[120px] -z-10"></div>
-      <div className="fixed bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px] -z-10"></div>
+  const handleAddContext = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (newContextName.trim()) {
+      const name = newContextName.trim();
+      if (!availableContexts.includes(name)) {
+        setAvailableContexts([...availableContexts, name]);
+      }
+      setSelectedContext(name);
+      setNewContextName('');
+      setIsAddingContext(false);
+    }
+  };
 
+  const handleClearInput = () => {
+    setInputText('');
+    setError(null);
+    setResult(null);
+  };
+
+  // Added handleCopy to allow users to copy the translation to clipboard
+  const handleCopy = useCallback(() => {
+    if (result?.translatedText) {
+      navigator.clipboard.writeText(result.translatedText);
+      alert('Teks berhasil disalin ke papan klip.');
+    }
+  }, [result?.translatedText]);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'id-ID';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.onstart = () => { setIsRecording(true); setError(null); };
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInputText((prev) => (prev ? `${prev.trim()} ${transcript}` : transcript));
+      };
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech') setError('Gagal mendengarkan suara.');
+        setIsRecording(false);
+      };
+      recognition.onend = () => { setIsRecording(false); };
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleRecording = () => {
+    if (!recognitionRef.current) return alert('Peramban tidak mendukung fitur suara.');
+    isRecording ? recognitionRef.current.stop() : recognitionRef.current.start();
+  };
+
+  return (
+    <div className="relative min-h-screen flex flex-col items-center bg-background-light overflow-x-hidden">
       <div className="w-full max-w-[1200px] px-6 py-4 flex flex-col h-full">
         {/* Header */}
-        <header className="flex items-center justify-between py-6 border-b border-primary/10">
+        <header className="flex items-center justify-between py-8">
           <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <div className="bg-primary text-white p-1 rounded-lg">
-                <span className="material-symbols-outlined text-2xl">translate</span>
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-primary">Krama.In</h1>
-            </div>
-            <p className="text-xs uppercase tracking-[0.2em] font-medium text-primary/60 mt-0.5">Sopan itu Mudah</p>
+            <h1 className="text-2xl font-bold tracking-tight text-primary">Krama.In</h1>
+            <p className="text-[10px] uppercase tracking-[0.3em] font-bold text-primary/30 mt-1">mbangun rasa mbangun basa</p>
           </div>
-          <nav className="hidden md:flex items-center gap-6">
-            <a className="text-sm font-semibold hover:text-secondary transition-colors" href="#">Panduan</a>
-            <a className="text-sm font-semibold hover:text-secondary transition-colors" href="#">Tentang Kami</a>
-            <button className="bg-primary text-white px-6 py-2 rounded-full text-sm font-bold hover:shadow-lg transition-all active:scale-95">
-              Masuk
-            </button>
-          </nav>
         </header>
 
         {/* Main Workspace */}
-        <main className="flex-1 flex flex-col items-center justify-center py-12 md:py-20">
-          {/* Hero Text */}
-          <div className="text-center mb-12">
-            <h2 className="serif-title text-4xl md:text-6xl text-primary mb-4">Ngomong Jawa dadi luwih gampang</h2>
-            <p className="text-primary/70 text-lg md:text-xl">Terjemahkan bahasa Indonesia ke tingkatan bahasa Jawa dengan tepat.</p>
-          </div>
-
-          {/* Interaction Box */}
-          <div className="w-full max-w-3xl bg-white rounded-2xl shadow-[0_20px_50px_rgba(93,64,55,0.06)] border border-primary/5 p-6 md:p-10 flex flex-col gap-8 transition-all">
-            {/* Input Section */}
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-primary/80 uppercase tracking-widest">Input Bahasa Indonesia</label>
-                <span className="text-[10px] bg-secondary/10 text-secondary px-2.5 py-1 rounded-md font-bold">DETEKSI OTOMATIS</span>
-              </div>
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                className="w-full min-h-[160px] p-5 text-lg border border-primary/10 rounded-xl focus:ring-2 focus:ring-secondary/40 focus:border-secondary outline-none transition-all placeholder:text-primary/20 bg-background-light/30 resize-none"
-                placeholder="Tulis kalimat yang ingin diterjemahkan di sini... Contoh: Saya ingin pergi ke rumah nenek besok pagi."
-              ></textarea>
-            </div>
-
-            {/* Context Selection */}
+        <main className="flex-1 flex flex-col items-center py-4">
+          <div className="w-full max-w-3xl bg-white rounded-3xl shadow-[0_4px_25px_rgba(93,64,55,0.04)] border border-primary/5 p-8 md:p-12 flex flex-col gap-10">
+            
+            {/* Situational Inspiration - Clean Text Version */}
             <div className="flex flex-col gap-4">
-              <label className="text-xs font-bold text-primary/80 uppercase tracking-widest">Bicara dengan siapa?</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <ContextPill 
-                  icon="person" 
-                  label={Context.PEER} 
-                  isActive={selectedContext === Context.PEER}
-                  onClick={() => setSelectedContext(Context.PEER)}
-                />
-                <ContextPill 
-                  icon="groups" 
-                  label={Context.ELDER} 
-                  isActive={selectedContext === Context.ELDER}
-                  onClick={() => setSelectedContext(Context.ELDER)}
-                />
-                <ContextPill 
-                  icon="child_care" 
-                  label={Context.CHILD} 
-                  isActive={selectedContext === Context.CHILD}
-                  onClick={() => setSelectedContext(Context.CHILD)}
-                />
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar -mx-2 px-2 pb-1">
+                {SITUATIONS.map((situation) => (
+                  <button
+                    key={situation.id}
+                    onClick={() => handleSituationClick(situation)}
+                    disabled={isGeneratingSituation || isLoading}
+                    className="flex-shrink-0 px-5 py-2.5 rounded-full border border-primary/10 bg-background-light/40 hover:bg-secondary/5 hover:border-secondary/40 hover:text-secondary transition-all text-xs font-bold text-primary/60 disabled:opacity-50 shadow-sm"
+                  >
+                    {situation.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm font-medium border border-red-100">
-                {error}
+            {/* Input Section */}
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-between items-end px-1">
+                <label className="text-[11px] font-bold text-primary/40 uppercase tracking-[0.15em]">Input Bahasa Indonesia</label>
+                {inputText && (
+                  <button 
+                    onClick={handleClearInput}
+                    className="text-[10px] text-red-400 font-bold uppercase tracking-widest hover:text-red-600 transition-colors flex items-center gap-1.5"
+                  >
+                    <TrashIcon />
+                    HAPUS INPUT
+                  </button>
+                )}
               </div>
-            )}
+              <div className="relative">
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  className={`w-full min-h-[200px] p-8 text-xl border border-primary/5 rounded-2xl focus:ring-0 focus:border-secondary/30 outline-none transition-all placeholder:text-primary/10 bg-[#FDFCF9] shadow-inner resize-none leading-relaxed ${isGeneratingSituation ? 'opacity-50' : ''}`}
+                  placeholder={isGeneratingSituation ? "Sedang merangkai kalimat..." : "Tulis atau ucapkan kalimat..."}
+                  disabled={isGeneratingSituation || isLoading}
+                ></textarea>
+                <button
+                  onClick={toggleRecording}
+                  className={`absolute right-6 bottom-6 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95 ${
+                    isRecording 
+                      ? 'bg-red-500 text-white ring-8 ring-red-50' 
+                      : 'bg-white text-primary/40 hover:text-secondary shadow-[0_10px_20px_rgba(0,0,0,0.05)] border border-primary/5'
+                  }`}
+                >
+                  <MicrophoneIcon isRecording={isRecording} />
+                </button>
+              </div>
+            </div>
 
-            {/* Convert Action */}
-            <div className="pt-2">
+            {/* Context Selection - Matches Screenshot */}
+            <div className="flex flex-col gap-6">
+              <div className="flex justify-between items-center px-1">
+                <label className="text-[11px] font-bold text-primary/40 uppercase tracking-[0.15em]">Bicara dengan siapa?</label>
+                <button 
+                  onClick={() => setIsAddingContext(true)}
+                  className="text-[11px] font-bold text-secondary flex items-center gap-2 hover:opacity-80 transition-opacity"
+                >
+                  <AddIcon />
+                  TAMBAH KONTEKS
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {availableContexts.map((ctx) => (
+                  <ContextPill 
+                    key={ctx}
+                    label={ctx} 
+                    isActive={selectedContext === ctx}
+                    onClick={() => setSelectedContext(ctx)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Manual Translate Button - Matches Screenshot Styling */}
+            <div className="pt-4 flex flex-col items-center gap-6">
               <button
                 onClick={handleTranslate}
-                disabled={isLoading || !inputText.trim()}
-                className={`w-full py-4.5 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all group shadow-xl ${
-                  isLoading || !inputText.trim() 
-                  ? 'bg-primary/50 cursor-not-allowed text-white/70' 
-                  : 'bg-primary hover:bg-primary/95 text-white shadow-primary/20 hover:shadow-primary/30 active:scale-[0.98]'
-                }`}
+                disabled={isLoading || isGeneratingSituation || !inputText.trim()}
+                className="w-full py-6 rounded-2xl bg-[#A89D91] text-white font-bold text-lg flex items-center justify-center gap-4 shadow-lg hover:brightness-95 transition-all active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed group"
               >
                 {isLoading ? (
-                  <>
-                    <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    <span>Memproses Bahasa...</span>
-                  </>
+                  <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
                 ) : (
                   <>
-                    <span>Convert to Javanese</span>
-                    <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                    <span className="tracking-wide">Terjemahkan</span>
+                    <ArrowRightIcon />
                   </>
                 )}
               </button>
+              <p className="text-[10px] text-primary/20 font-bold uppercase tracking-[0.2em]">
+                {isRecording ? "Sedang mendengarkan..." : isGeneratingSituation ? "Menyiapkan inspirasi..." : "Klik tombol untuk mulai menterjemahkan"}
+              </p>
             </div>
-          </div>
 
-          {/* Quick Scenarios */}
-          <div className="w-full max-w-3xl mt-16">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="h-px flex-1 bg-primary/10"></div>
-              <span className="text-[10px] font-bold text-primary/30 uppercase tracking-[0.3em]">Atau gunakan skenario cepat</span>
-              <div className="h-px flex-1 bg-primary/10"></div>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {QUICK_SCENARIOS.map((scenario) => (
-                <button
-                  key={scenario.id}
-                  onClick={() => handleQuickScenario(scenario.text)}
-                  className="group flex flex-col items-center gap-3 p-5 bg-white/40 border border-primary/5 rounded-xl hover:bg-white hover:shadow-xl hover:-translate-y-1 transition-all"
-                >
-                  <span className="material-symbols-outlined text-secondary text-3xl group-hover:scale-110 transition-transform">{scenario.icon}</span>
-                  <span className="text-xs font-bold uppercase tracking-wider">{scenario.label}</span>
-                </button>
-              ))}
-            </div>
+            {error && (
+              <div className="bg-red-50 text-red-500 p-4 rounded-xl text-xs font-bold border border-red-100 text-center uppercase tracking-wider">
+                {error}
+              </div>
+            )}
           </div>
         </main>
 
-        {/* Footer */}
-        <footer className="py-10 flex flex-col md:flex-row items-center justify-between border-t border-primary/10 text-[10px] text-primary/40 font-bold uppercase tracking-[0.2em]">
+        <footer className="py-12 flex flex-col md:flex-row items-center justify-between border-t border-primary/5 text-[10px] text-primary/30 font-bold uppercase tracking-[0.2em]">
           <div>© 2024 Krama.In — Aksara Digital Nusantara</div>
-          <div className="flex gap-8 mt-6 md:mt-0">
+          <div className="flex gap-10 mt-6 md:mt-0">
             <a className="hover:text-primary transition-colors" href="#">Kebijakan Privasi</a>
             <a className="hover:text-primary transition-colors" href="#">API Dokumentasi</a>
             <a className="hover:text-primary transition-colors" href="#">Kontak</a>
@@ -184,54 +289,80 @@ const App: React.FC = () => {
         </footer>
       </div>
 
+      {/* New Context Modal */}
+      {isAddingContext && (
+        <div className="fixed inset-0 bg-primary/20 backdrop-blur-sm z-[60] flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-primary mb-2">Tambah Konteks</h3>
+            <p className="text-xs text-primary/40 font-bold uppercase tracking-wider mb-8">Siapa lawan bicara Anda?</p>
+            <form onSubmit={handleAddContext}>
+              <input 
+                autoFocus
+                type="text" 
+                value={newContextName}
+                onChange={(e) => setNewContextName(e.target.value)}
+                placeholder="Misal: Kyai, Mertua..."
+                className="w-full p-5 border border-primary/10 rounded-2xl focus:ring-0 focus:border-secondary/50 outline-none mb-8 text-primary font-medium"
+              />
+              <div className="flex gap-4">
+                <button 
+                  type="button"
+                  onClick={() => { setIsAddingContext(false); setNewContextName(''); }}
+                  className="flex-1 py-4 rounded-2xl font-bold text-xs uppercase tracking-widest text-primary/40 hover:bg-primary/5 transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-4 rounded-2xl bg-secondary text-white font-bold text-xs uppercase tracking-widest shadow-xl shadow-secondary/20 hover:brightness-105"
+                >
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Result Modal Overlay */}
       {result && (
-        <div className="fixed inset-0 bg-primary/20 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
-          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-secondary/20 p-8 md:p-12 relative overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-            <div className="absolute top-0 left-0 w-full h-2.5 bg-secondary"></div>
+        <div className="fixed inset-0 bg-primary/10 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl border border-primary/5 p-10 md:p-14 relative overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="absolute top-0 left-0 w-full h-2 bg-secondary/80"></div>
             
-            <div className="flex justify-between items-start mb-8">
-              <div>
-                <span className="inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-bold bg-secondary/10 text-secondary uppercase tracking-widest mb-3 border border-secondary/20 shadow-sm">
-                  <span className="material-symbols-outlined text-sm mr-1.5 fill-1">verified</span> 
-                  {result.level}
+            <div className="flex justify-between items-start mb-10">
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-secondary uppercase tracking-[0.25em]">
+                  {result.level} • {selectedContext}
                 </span>
-                <h3 className="text-xs font-bold text-primary/40 uppercase tracking-[0.2em]">Hasil Terjemahan</h3>
+                <h3 className="text-xs font-bold text-primary/30 uppercase tracking-[0.2em]">Hasil Terjemahan</h3>
               </div>
               <button 
-                onClick={closeResult}
-                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-primary/5 text-primary/30 hover:text-primary transition-all active:scale-90"
+                // Updated to use an inline function to close the result modal
+                onClick={() => setResult(null)}
+                className="text-[10px] font-black text-primary/20 hover:text-primary uppercase tracking-[0.2em] transition-all"
               >
-                <span className="material-symbols-outlined">close</span>
+                Close
               </button>
             </div>
 
-            <div className="bg-background-light rounded-2xl p-8 mb-8 border border-primary/5 shadow-inner">
-              <p className="serif-title text-2xl md:text-4xl text-primary leading-relaxed text-center">
+            <div className="mb-10 text-center">
+              <p className="serif-title text-3xl md:text-5xl text-primary leading-tight italic">
                 "{result.translatedText}"
               </p>
             </div>
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex items-start gap-3 text-primary/60 italic text-sm max-w-md">
-                <span className="material-symbols-outlined text-secondary shrink-0">info</span>
-                <span>{result.explanation}</span>
-              </div>
-              <div className="flex gap-3">
-                <button 
-                  className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border-2 border-primary/10 font-bold hover:bg-primary/5 transition-all active:scale-95 text-sm"
-                >
-                  <span className="material-symbols-outlined text-xl">share</span>
-                  Bagikan
-                </button>
-                <button 
-                  onClick={handleCopy}
-                  className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-primary text-white font-bold hover:shadow-xl hover:shadow-primary/20 transition-all active:scale-95 text-sm"
-                >
-                  <span className="material-symbols-outlined text-xl">content_copy</span>
-                  Salin Teks
-                </button>
-              </div>
+            <div className="flex flex-col gap-8 pt-8 border-t border-primary/5">
+              <p className="text-sm text-primary/40 leading-relaxed font-medium italic">
+                {result.explanation}
+              </p>
+              <button 
+                // Added handleCopy function reference here
+                onClick={handleCopy}
+                className="w-full py-5 rounded-2xl bg-primary text-white font-bold text-xs uppercase tracking-[0.3em] hover:shadow-2xl transition-all active:scale-95"
+              >
+                Salin Teks
+              </button>
             </div>
           </div>
         </div>
@@ -241,29 +372,23 @@ const App: React.FC = () => {
 };
 
 interface ContextPillProps {
-  icon: string;
   label: string;
   isActive: boolean;
   onClick: () => void;
 }
 
-const ContextPill: React.FC<ContextPillProps> = ({ icon, label, isActive, onClick }) => {
+const ContextPill: React.FC<ContextPillProps> = ({ label, isActive, onClick }) => {
   return (
     <button 
       onClick={onClick}
-      className={`group flex items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all active:scale-[0.97] ${
+      className={`group flex items-center justify-center p-5 rounded-2xl border-2 transition-all active:scale-[0.97] ${
         isActive 
-        ? 'border-secondary bg-secondary/5 ring-4 ring-secondary/5 shadow-lg shadow-secondary/5' 
-        : 'border-primary/5 hover:border-secondary/40 bg-white'
+        ? 'border-secondary bg-white ring-4 ring-secondary/5 shadow-xl shadow-secondary/5' 
+        : 'border-primary/5 hover:border-secondary/20 bg-white shadow-sm'
       }`}
     >
-      <span className={`material-symbols-outlined text-xl transition-colors ${
-        isActive ? 'text-secondary fill-1' : 'text-primary/40 group-hover:text-secondary'
-      }`}>
-        {icon}
-      </span>
-      <span className={`text-sm font-bold transition-colors ${
-        isActive ? 'text-primary' : 'text-primary/60'
+      <span className={`text-xs font-bold uppercase tracking-widest transition-colors whitespace-nowrap overflow-hidden text-ellipsis ${
+        isActive ? 'text-secondary' : 'text-primary/30 group-hover:text-primary/60'
       }`}>
         {label}
       </span>
